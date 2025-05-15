@@ -1,95 +1,65 @@
-// npm install axios cheerio
-const axios = require('axios');
-const cheerio = require('cheerio');
-const fs = require('fs');
+const axios = require("axios");
+const cheerio = require("cheerio");
+const fs = require("fs");
 
-// specify the URL of the site to crawl
-const targetUrl = 'https://www.scrapingcourse.com/ecommerce/';
+// PubMed search URL (you can modify the search term)
+const targetUrl =
+  "https://pubmed.ncbi.nlm.nih.gov/?term=cancer&filter=dates.2023-2024";
 
-// add the target URL to an array of URLs to visit
-let urlsToVisit = [targetUrl];
+// Store scraped article data
+const articles = [];
 
-// define the desired crawl limit
-const maxCrawlLength = 20;
-
-// to store scraped product data
-const productData = [];
-
-// define a crawler function
+// Main crawler function
 const crawler = async () => {
-    // track the number of crawled URLs
-    let crawledCount = 0;
-    // define a regex to match the pagination pattern
-    const pagePattern = /page\/\d+/i;
-    for (; urlsToVisit.length > 0 && crawledCount <= maxCrawlLength;) {
-        // get the next URL from the list
-        const currentUrl = urlsToVisit.shift();
-        // increment the crawl count
-        crawledCount++;
+  try {
+    // Get the page content
+    const response = await axios.get(targetUrl, {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+      },
+    });
 
-        try {
-            // request the target website
-            const response = await axios.get(currentUrl);
-            // parse the website's HTML
-            const $ = cheerio.load(response.data);
+    const $ = cheerio.load(response.data);
 
-            // find all links on the page
-            const linkElements = $('a[href]');
-            linkElements.each((index, element) => {
-                let url = $(element).attr('href');
+    // Find all article entries
+    $(".docsum-wrap").each((index, element) => {
+      const article = {
+        title: $(element).find(".docsum-title").text().trim(),
+        authors: $(element).find(".docsum-authors").text().trim(),
+        journal: $(element).find(".docsum-journal").text().trim(),
+        url:
+          "https://pubmed.ncbi.nlm.nih.gov" + $(element).find("a").attr("href"),
+      };
 
-                // check if the URL is a full link or a relative path
-                if (!url.startsWith('http')) {
-                    // remove leading slash if present
-                    url = targetUrl + url.replace(/^\//, '');
-                }
+      // Only add if we have a title
+      if (article.title) {
+        articles.push(article);
+        console.log(`Found article: ${article.title}`);
+      }
+    });
 
-                // follow links within the target website
-                if (url.startsWith(targetUrl) && !urlsToVisit.includes(url)) {
-                    // update the URLs to visit
-                    urlsToVisit.push(url);
-                }
-            });
+    // Save to CSV
+    if (articles.length > 0) {
+      const header = "Title,Authors,Journal,URL\n";
+      const csvRows = articles
+        .map(
+          (article) =>
+            `"${article.title}","${article.authors}","${article.journal}","${article.url}"`
+        )
+        .join("\n");
 
-            // extract product information from paginated product pages only
-            if (pagePattern.test(currentUrl)) {
-                // retrieve all product containers
-                const productContainers = $('.product');
-
-                // iterate through the product containers to extract data
-                productContainers.each((index, product) => {
-                    const data = {};
-
-                    data.url =
-                        $(product)
-                            .find('.woocommerce-LoopProduct-link')
-                            .attr('href') || 'N/A';
-                    data.image =
-                        $(product).find('.product-image').attr('src') || 'N/A';
-                    data.name =
-                        $(product).find('.product-name').text().trim() || 'N/A';
-                    data.price =
-                        $(product).find('.price').text().trim() || 'N/A';
-
-                    // append the scraped data to the empty array
-                    productData.push(data);
-                });
-            }
-        } catch (error) {
-            // handle any error that occurs during the HTTP request
-            console.error(`Error fetching ${currentUrl}: ${error.message}`);
-        }
+      fs.writeFileSync("pubmed_articles.csv", header + csvRows);
+      console.log(
+        `\nSuccessfully saved ${articles.length} articles to pubmed_articles.csv`
+      );
+    } else {
+      console.log("No articles found.");
     }
-    // write productData to a CSV file
-    const header = 'Url,Image,Name,Price\n';
-    const csvRows = productData
-        .map((item) => `${item.url},${item.image},${item.name},${item.price}`)
-        .join('\n');
-    const csvData = header + csvRows;
-
-    fs.writeFileSync('products.csv', csvData);
-    console.log('CSV file has been successfully created!');
+  } catch (error) {
+    console.error("Error:", error.message);
+  }
 };
 
-// execute the crawler function
+// Run the crawler
 crawler();
