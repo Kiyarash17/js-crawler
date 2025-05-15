@@ -1,61 +1,65 @@
-// npm install axios cheerio
-const axios = require('axios');
-const cheerio = require('cheerio');
+const axios = require("axios");
+const cheerio = require("cheerio");
+const fs = require("fs");
 
-// specify the URL of the site to crawl
-const targetUrl = 'https://www.scrapingcourse.com/ecommerce/';
+// PubMed search URL (you can modify the search term)
+const targetUrl =
+  "https://pubmed.ncbi.nlm.nih.gov/?term=cancer&filter=dates.2023-2024";
 
-// add the target URL to an array of URLs to visit
-let urlsToVisit = [targetUrl];
+// Store scraped article data
+const articles = [];
 
-// define the desired crawl limit
-const maxCrawlLength = 20;
-
-// define a crawler function
+// Main crawler function
 const crawler = async () => {
-    // track the number of crawled URLs
-    let crawledCount = 0;
-    
+  try {
+    // Get the page content
+    const response = await axios.get(targetUrl, {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+      },
+    });
 
-    for (; urlsToVisit.length > 0 && crawledCount <= maxCrawlLength;) {
-        // get the next URL from the list
-        const currentUrl = urlsToVisit.shift();
-        // increment the crawl count
-        crawledCount++;
+    const $ = cheerio.load(response.data);
 
-        try {
-            // request the target website
-            const response = await axios.get(currentUrl);
-            // parse the website's HTML
-            const $ = cheerio.load(response.data);
-            
+    // Find all article entries
+    $(".docsum-wrap").each((index, element) => {
+      const article = {
+        title: $(element).find(".docsum-title").text().trim(),
+        authors: $(element).find(".docsum-authors").text().trim(),
+        journal: $(element).find(".docsum-journal").text().trim(),
+        url:
+          "https://pubmed.ncbi.nlm.nih.gov" + $(element).find("a").attr("href"),
+      };
 
-            // find all links on the page
-            const linkElements = $('a[href]');
-            console.log(linkElements);
-            
-            linkElements.each((index, element) => {
-                let url = $(element).attr('href');
+      // Only add if we have a title
+      if (article.title) {
+        articles.push(article);
+        console.log(`Found article: ${article.title}`);
+      }
+    });
 
-                // check if the URL is a full link or a relative path
-                if (!url.startsWith('http')) {
-                    // remove leading slash if present
-                    url = targetUrl + url.replace(/^\//, '');
-                }
+    // Save to CSV
+    if (articles.length > 0) {
+      const header = "Title,Authors,Journal,URL\n";
+      const csvRows = articles
+        .map(
+          (article) =>
+            `"${article.title}","${article.authors}","${article.journal}","${article.url}"`
+        )
+        .join("\n");
 
-                // follow links within the target website
-                if (url.startsWith(targetUrl) && !urlsToVisit.includes(url)) {
-                    // update the URLs to visit
-                    urlsToVisit.push(url);
-                }
-            });
-        } catch (error) {
-            // handle any error that occurs during the HTTP request
-            console.error(`Error fetching ${currentUrl}: ${error.message}`);
-        }
+      fs.writeFileSync("pubmed_articles.csv", header + csvRows);
+      console.log(
+        `\nSuccessfully saved ${articles.length} articles to pubmed_articles.csv`
+      );
+    } else {
+      console.log("No articles found.");
     }
-    // console.log(urlsToVisit);
+  } catch (error) {
+    console.error("Error:", error.message);
+  }
 };
 
-// execute the crawler function
+// Run the crawler
 crawler();
